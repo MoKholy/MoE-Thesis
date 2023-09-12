@@ -13,7 +13,48 @@ class Expert(nn.Module):
     
     def forward(self, x):
         return self.fc2(self.relu(self.fc1(x)))
-    
+
+
+class GatingNetwork(nn.Module):
+    def __init__(self, input_dim, num_experts):
+        super(Gating, self).__init__()
+        self.fc = nn.Linear(input_dim, num_experts)
+        self.softmax = nn.Softmax(dim=1)
+
+    def forward(self, x):
+        x = self.fc(x)
+        gating_weights = self.softmax(x)
+        return gating_weights
+
+class MixtureOfExperts(nn.Module):
+    def __init__(self, input_dim, hidden_dim, num_experts, num_classes):
+        super(MixtureOfExperts, self).__init__()
+        self.num_experts = num_experts
+
+        # Create expert modules
+        self.experts = nn.ModuleList([Expert(input_dim, hidden_dim, num_classes) for _ in range(num_experts)])
+
+        # Create gating module
+        self.gating = Gating(input_dim, num_experts)
+
+    def forward(self, x):
+        # Calculate gating weights
+        gating_weights = self.gating(x)
+
+        # Calculate expert outputs and apply gating
+        expert_outputs = []
+        for expert in self.experts:
+            expert_output = expert(x)
+            expert_outputs.append(expert_output.unsqueeze(2))  # Add a dimension
+        expert_outputs = torch.cat(expert_outputs, dim=2)  # Concatenate experts along the added dimension
+
+        # Combine expert outputs using gating weights
+        mixture_output = torch.matmul(expert_outputs, gating_weights.unsqueeze(1)).squeeze()
+
+        return mixture_output, gating_weights
+
+
+
 # gating network for expert selection
 class GatingNetwork(nn.Module):
     def __init__(self, input_dim, num_experts, num_classes):
