@@ -1,0 +1,6 @@
+data/cleaned_dataset.csv
+notebooks/runs/Sep12_18-18-20_Kholys-MacBook-Pro.local/events.out.tfevents.1694531901.Kholys-MacBook-Pro.local
+notebooks/runs/Sep12_18-35-25_Kholys-MacBook-Pro.local/events.out.tfevents.1694532925.Kholys-MacBook-Pro.local
+scripts/__pycache__/__init__.cpython-39.pyc
+scripts/__pycache__/losses.cpython-39.pyc
+scripts/__pycache__/models.cpython-39.pyc
