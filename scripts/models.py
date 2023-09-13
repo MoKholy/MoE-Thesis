@@ -58,13 +58,13 @@ class MixtureOfExperts(nn.Module):
         # calculating expert outputs
         expert_outputs = torch.stack([expert(x) for expert in self.experts], dim=1)
         # print expert_outputs.shape
-        print(f"expert_outputs_shape: {expert_outputs.shape}")
+        # print(f"expert_outputs_shape: {expert_outputs.shape}")
         # print gating_weights.shape
-        print(f"gating_weights_shape: {gating_weights.shape}")
+        # print(f"gating_weights_shape: {gating_weights.shape}")
 
         # calculating mixture output
         mixture_output = torch.sum(gating_weights.view(-1, self.num_experts, 1) * expert_outputs, dim=1)
-        print(f"mixture_output_shape: {mixture_output.shape}")    
+        # print(f"mixture_output_shape: {mixture_output.shape}")    
         return mixture_output, gating_weights, expert_outputs
 
 

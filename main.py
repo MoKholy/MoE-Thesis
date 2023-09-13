@@ -2,10 +2,13 @@ import argparse
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from sklearn.metrics import accuracy_score, f1_score
+from sklearn.metrics import accuracy_score, f1_score, confusion_matrix, classification_report
 from tensorboardX import SummaryWriter  
 from model import MixtureOfExperts
 from losses import WeightedCrossEntropyLoss, FocalLoss, MSEGatingLoss
+import matplitlib.pyplot as plt
+import seaborn as sns
+from tqdm import tqdm
 
 # define command line parser
 def argparser():
@@ -70,64 +73,122 @@ def evaluate(model, expert_loss_fn, gating_loss_fn, dataloader, device):
     return avg_loss, accuracy, f1, classification_report_str
 
 # Training loop function
-def train(args, model, expert_loss_fn, gating_loss_fn, optimizer, dataloader, val_dataloader, device):
-    best_val_loss = float('inf')
-    best_model_state_dict = None
-
-    model.to(device)  # Move the model to the specified device
-
-    # Create a SummaryWriter for TensorBoard
+def train(args, model, expert_loss_fn, gating_loss_fn, optimizer, scheduler, dataloader, val_dataloader, device):
+    best_f1_score = 0.0
     writer = SummaryWriter()
-
+    model.to(device)
     for epoch in tqdm(range(args.num_epochs), desc="Epochs"):
+
+        
+        # set model to train
         model.train()
+
+        # track losses, predictions and labels
         total_expert_loss = 0.0
         total_gating_loss = 0.0
         all_preds = []
         all_labels = []
 
-        for batch_data, batch_labels in tqdm(dataloader, desc="Batches", leave=False):
-            batch_data = batch_data.to(device)  # Move data to the specified device
-            batch_labels = batch_labels.to(device)
+        # loop over data from dataloader
 
+        for input, true_gating_labels, labels in tqdm(dataloader, desc="Batches", leave=False):
+            # get data to device
+            input = input.to(device)
+            true_gating_labels = true_gating_labels.to(device)
+            labels = labels.to(device)
+
+            # get output from model
+            mixture_out, gating_out, expert_out = model(input)
+            
+            # expert out for debugging
+
+            # get gating loss
+            gate_loss = gating_loss_fn(gating_out, true_gating_labels.float())
+            total_gating_loss += gate_loss.item()
+            # get expert loss
+            exprt_loss = expert_loss_fn(mixture_out, labels)
+            total_expert_loss += exprt_loss.item()
+            # get total loss
+            total_loss = gate_loss + exprt_loss
+            # zero gradients
             optimizer.zero_grad()
-            expert_outputs, gating_weights = model(batch_data)
-
-            # Calculate expert loss
-            expert_loss = expert_loss_fn(expert_outputs, batch_labels)
-            total_expert_loss += expert_loss.item()
-
-            # Calculate gating loss
-            gating_loss = gating_loss_fn(gating_weights, true_gating_labels.to(device))  # Move gating labels
-            total_gating_loss += gating_loss.item()
-
-            # Total loss for backpropagation
-            total_loss = expert_loss + gating_loss
+            # backpropagate
             total_loss.backward()
+            # update weights
             optimizer.step()
+            # update scheduler
+            scheduler.step()
 
-            # Calculate predictions for accuracy and F1 score
-            _, preds = torch.max(expert_outputs, 1)
-            all_preds.extend(preds.cpu().tolist())  # Move predictions back to CPU
-            all_labels.extend(batch_labels.cpu().tolist())
+            # calculate predictions for accuracy and F1 score
+            _, preds = torch.max(mixture_out, dim=1)
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
 
-        # Calculate average losses for the epoch
+        # calculate average losses for epoch
         avg_expert_loss = total_expert_loss / len(dataloader)
         avg_gating_loss = total_gating_loss / len(dataloader)
 
-        # Calculate accuracy and F1 score for the epoch
+        # calculate accuracy and F1 score
         accuracy = accuracy_score(all_labels, all_preds)
-        f1 = f1_score(all_labels, all_preds, average='weighted')
+        f1 = f1_score(all_labels, all_preds, average="macro")
 
-        # Log metrics to TensorBoard
-        writer.add_scalar('Train/Avg_Expert_Loss', avg_expert_loss, epoch)
-        writer.add_scalar('Train/Avg_Gating_Loss', avg_gating_loss, epoch)
-        writer.add_scalar('Train/Accuracy', accuracy, epoch)
-        writer.add_scalar('Train/F1_Score', f1, epoch)
+        # write to tensorboard
+        writer.add_scalar("Train/Avg_Train_Expert_Loss", avg_expert_loss, epoch)
+        writer.add_scalar("Train/Avg_Train_Gating_Loss", avg_gating_loss, epoch)
+        writer.add_scalar("Train/Train_Accuracy", accuracy, epoch)
+        writer.add_scalar("Train/Train_F1_Score", f1, epoch)
 
-    # Save the best model checkpoint
-    if best_model_state_dict is not None:
-        torch.save(best_model_state_dict, 'best_model.pth')
+        # perform validation
 
-    # Close the TensorBoard writer
+        # set model to eval
+        model.eval()
+
+        # track losses, predictions and labels for validation
+        total_expert_loss_val = 0.0
+        total_gating_loss_val = 0.0
+        all_preds_val = []
+        all_labels_val = []
+
+        # loop over data from dataloader
+        for input, true_gating_labels, labels in tqdm(val_dataloader, desc="Validation", leave=False):
+            # get data to device
+            input = input.to(device)
+            true_gating_labels = true_gating_labels.to(device)
+            labels = labels.to(device)
+
+            # get output from model
+            mixture_out, gating_out, expert_out = model(input)
+            # get gating loss
+            gate_loss = gating_loss_fn(gating_out, true_gating_labels.float())
+            total_gating_loss_val += gate_loss.item()
+            # get expert loss
+            exprt_loss = expert_loss_fn(mixture_out, labels)
+            total_expert_loss_val += exprt_loss.item()
+
+            # calculate predictions for accuracy and F1 score
+            _, preds = torch.max(mixture_out, dim=1)
+            all_preds_val.extend(preds.cpu().numpy())
+            all_labels_val.extend(labels.cpu().numpy())
+
+        # calculate average losses for epoch
+        avg_expert_loss_val = total_expert_loss_val / len(val_dataloader)
+        avg_gating_loss_val = total_gating_loss_val / len(val_dataloader)
+
+        # calculate accuracy and F1 score
+        accuracy_val = accuracy_score(all_labels_val, all_preds_val)
+        f1_val = f1_score(all_labels_val, all_preds_val, average="macro")
+
+        # write to tensorboard
+        writer.add_scalar("Train/Avg_Val_Expert_Loss", avg_expert_loss_val, epoch)
+        writer.add_scalar("Train/Avg_Val_Gating_Loss", avg_gating_loss_val, epoch)
+        writer.add_scalar("Train/Val_Accuracy", accuracy_val, epoch)
+        writer.add_scalar("Train/Val_F1_Score", f1_val, epoch)
+
+        # check if F1 score is best
+        if f1_val > best_f1_score:
+            # save model
+            torch.save(model.state_dict(), "best_model.pt")
+            # update best F1 score
+            best_f1_score = f1
+        
     writer.close()
