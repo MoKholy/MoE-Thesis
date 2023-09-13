@@ -10,7 +10,7 @@ import matplitlib.pyplot as plt
 import seaborn as sns
 from tqdm import tqdm
 
-# define command line parser
+# define command line parser #TODO add extra commandline arguments
 def argparser():
     parser = argparse.ArgumentParser(description='Mixture of Experts Training')
     parser.add_argument('--input_dim', type=int, help='Input dimension')
@@ -26,9 +26,12 @@ def argparser():
     parser.add_argument('--scheduler', choices=[None, 'lr_step', 'plateau'], default=None, help='Learning rate scheduler')
     parser.add_argument('--scheduler_step_size', type=int, default=20, help='Step size for lr_step scheduler')
     parser.add_argument('--gamma', type=float, default=0.1, help='Gamma for lr_step scheduler')
+    parser.add_argument('--eval_mode', type=bool, default=False, help='Evaluate model from path')
+    parser.add_argument('--model_path', type=str, default=None, help='Path to model to evaluate')
+    parser.add_argument('--dataset_name', type=str, default=None, help='Name of dataset to use')
     return parser.parse_args()
 
-# evaluate function
+# evaluate function #TODO update this function
 def evaluate(model, expert_loss_fn, gating_loss_fn, dataloader, device):
     model.eval()
     total_loss = 0.0
@@ -78,19 +81,14 @@ def train(args, model, expert_loss_fn, gating_loss_fn, optimizer, scheduler, dat
     writer = SummaryWriter()
     model.to(device)
     for epoch in tqdm(range(args.num_epochs), desc="Epochs"):
-
-        
         # set model to train
         model.train()
-
         # track losses, predictions and labels
         total_expert_loss = 0.0
         total_gating_loss = 0.0
         all_preds = []
         all_labels = []
-
         # loop over data from dataloader
-
         for input, true_gating_labels, labels in tqdm(dataloader, desc="Batches", leave=False):
             # get data to device
             input = input.to(device)
@@ -192,3 +190,17 @@ def train(args, model, expert_loss_fn, gating_loss_fn, optimizer, scheduler, dat
             best_f1_score = f1
         
     writer.close()
+
+
+
+# main function
+
+
+
+if __name__ == "__main__":
+
+    #parse arguments from command line
+    args = argparser()
+
+
+
