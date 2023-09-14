@@ -6,29 +6,62 @@ from sklearn.metrics import accuracy_score, f1_score, confusion_matrix, classifi
 from tensorboardX import SummaryWriter  
 from model import MixtureOfExperts
 from losses import WeightedCrossEntropyLoss, FocalLoss, MSEGatingLoss
+from dataset import GatingDataset
 import matplitlib.pyplot as plt
 import seaborn as sns
 from tqdm import tqdm
+from random import random
+from torch.utils.data import random_split
+import numpy as np
+import os 
 
-# define command line parser #TODO add extra commandline arguments
+# define function set seed for random, torch and numpy for reproduction
+def set_seed(seed):
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    np.random.seed(seed)
+    torch.backends.cudnn.deterministic = True
+
+# define command line parser function
 def argparser():
     parser = argparse.ArgumentParser(description='Mixture of Experts Training')
-    parser.add_argument('--input_dim', type=int, help='Input dimension')
+    # add general arguments
+    parser.add_argument('--seed', type=int, default=42, help='Random seed')
+    parser.add_argument('--log_dir', type=str, default='logs', help='Directory to save logs')
+    # add dataset arguments
+    parser.add_argument('--dataset_name', type=str, default=None, help='Name of dataset to use')
+    parser.add_argument('--standardize', type=bool, default=True, help='Standardize dataset')
+    parser.add_argument('--train_size', type=float, default=0.8, help='Train size')
+    parser.add_argument('--val_size', type=float, default=0.1, help='Validation size')
+    parser.add_argument('--test_size', type=float, default=0.1, help='Test size')
+    # add dataloader arguments
+    parser.add_argument('--batch_size', type=int, default=64, help='Batch size')
+    # add model arguments
     parser.add_argument('--hidden_dim', type=int, help='Hidden dimension for experts')
     parser.add_argument('--num_experts', type=int, help='Number of experts')
     parser.add_argument('--num_classes', type=int, help='Number of classes')
-    parser.add_argument('--batch_size', type=int, default=64, help='Batch size')
+    parser.add_argument('--dropout', type=float, default=0.0, help='Dropout probability')
+    parser.add_argument('--activation_fn', type=str, default='relu', help='Activation function for experts')
+    ## add training arguments     
     parser.add_argument('--num_epochs', type=int, default=100, help='Number of training epochs')
     parser.add_argument('--learning_rate', type=float, default=0.01, help='Learning rate')
     parser.add_argument('--weight_decay', type=float, default=1e-5, help='Weight decay (L2 regularization)')
-    parser.add_argument('--use_focal_loss', action='store_true', help='Use Focal Loss for expert loss')
+    
+    # add loss function arguments
+    parser.add_argument('--expert_loss_fn', choices=['ce', 'focal_loss', 'wce'], default='ce', help='Expert loss function')
+    # add optimizer arguments
     parser.add_argument('--optimizer', choices=['adam', 'sgd'], default='adam', help='Optimizer choice')
-    parser.add_argument('--scheduler', choices=[None, 'lr_step', 'plateau'], default=None, help='Learning rate scheduler')
-    parser.add_argument('--scheduler_step_size', type=int, default=20, help='Step size for lr_step scheduler')
-    parser.add_argument('--gamma', type=float, default=0.1, help='Gamma for lr_step scheduler')
+    parser.add_argument('--momentum', type=float, default=0.9, help='Momentum for SGD optimizer')
+    parser.add_argument('--nesterov', type=bool, default=True, help='Nesterov for SGD optimizer')
+    parser.add_argument('--betas', nargs='+', type=float, default=[0.9, 0.999], help='Betas for Adam optimizer')
+    # add save arguments # create dataloaderr lr_step scheduler')
+    # parser.add_argument('--patience', type=int, default=5, help='Patience for plateau scheduler')
+    # parser.add_argument('--min_lr', type=float, default=1e-6, help='Minimum learning rate for plateau scheduler')
+    
+    # eval mode arguments
     parser.add_argument('--eval_mode', type=bool, default=False, help='Evaluate model from path')
     parser.add_argument('--model_path', type=str, default=None, help='Path to model to evaluate')
-    parser.add_argument('--dataset_name', type=str, default=None, help='Name of dataset to use')
     return parser.parse_args()
 
 # evaluate function #TODO update this function
@@ -201,6 +234,60 @@ if __name__ == "__main__":
 
     #parse arguments from command line
     args = argparser()
+    
+    # set seed for reproducibility
+    set_seed(args.seed)
+    
+    # set log directory 
+    log_dir = os.path.join(args.log_dir, args.dataset_name, args.model_name)
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+        
+    # set save directory
+    save_dir = os.path.join(args.save_dir, args.dataset_name, args.model_name)
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    
+    # load datasets
+    dataset_path = f"../data/processed/"
+    
+    train_dataset = GatingDataset(dataset_name=args.dataset_name, seed=args.seed, split="train", transform=args.standardize)
+    val_dataset = GatingDataset(dataset_name=args.dataset_name,seed=args.seed, split="val", transform=args.standardize)
+    test_dataset = GatingDataset(dataset_name=args.dataset_name,seed=args.seed, split="test", transform=args.standardize)
+    
+    # create dataloaders
+    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
+    test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
+    
+    # get arguments for model
+    
+    if args.eval_mode:
+        # get input dims from test dataset
+        input_dim = test_dataset.get_input_dim()
+    else:
+        # get input dims from train dataset
+        input_dim = train_dataset.get_input_dim()
+    
+    
+    
+    model_args = {
+        "input_dim" : input_dim,
+        "hidden_dim" : args.hidden_dim,
+        "num_experts" : args.num_classes if not args.num_experts else args.num_experts,
+        "num_classes" : args.num_classes if args.num_classes else 15,
+        "dropout" : args.dropout,
+        "activation_fn" : args.activation_fn
+    }
+    
+    # create model
+    
+    
+    
+    
 
+    # set device 
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
 
 

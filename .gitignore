@@ -19,3 +19,4 @@ scripts/__pycache__/losses.cpython-311.pyc
 scripts/__pycache__/models.cpython-311.pyc
 data/cleaned_v2_dataset.csv
 scripts/__pycache__/dataset.cpython-39.pyc
+notebooks/test_datasets.ipynb

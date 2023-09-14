@@ -2,17 +2,29 @@
 import torch
 import torch.nn as nn
 
+ACTIVATIONS = {
+    'relu': nn.ReLU(),
+    'tanh': nn.Tanh(),
+    'prelu': nn.PReLU(),
+    'leakyrelu': nn.LeakyReLU(),
+    'sigmoid': nn.Sigmoid()
+}
 
 # expert network with simple 2-layer MLP
 class Expert(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim):
+    def __init__(self, input_dim, hidden_dim, output_dim, activation, dout=0.2):
         super(Expert, self).__init__()
         self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.bn1 = nn.BatchNorm1d(hidden_dim)
+        self.dropout = nn.Dropout(dout)
         self.fc2 = nn.Linear(hidden_dim, output_dim)
-        self.relu = nn.ReLU()
+        self.bn2 = nn.BatchNorm1d(output_dim)
+        self.act = ACTIVATIONS[activation]
     
     def forward(self, x):
-        return self.fc2(self.relu(self.fc1(x)))
+        return self.bn2(self.fc2(self.dropout(self.act(self.bn1(self.fc1(x))))))
+        # return self.bn2(self.fc2(self.act(self.bn1(self.fc1(x)))))
+        # return self.fc2(self.act(self.fc1(x)))
 
 
 class GatingNetwork(nn.Module):
@@ -22,17 +34,15 @@ class GatingNetwork(nn.Module):
         self.softmax = nn.Softmax(dim=1)
 
     def forward(self, x):
-        x = self.fc(x)
-        gating_weights = self.softmax(x)
-        return gating_weights
+        return self.softmax(self.fc(x))
 
 class MixtureOfExperts(nn.Module):
-    def __init__(self, input_dim, hidden_dim, num_experts, num_classes):
+    def __init__(self, input_dim, hidden_dim, num_experts, num_classes, activation):
         super(MixtureOfExperts, self).__init__()
         self.num_experts = num_experts
 
         # Create expert modules
-        self.experts = nn.ModuleList([Expert(input_dim, hidden_dim, num_classes) for _ in range(num_experts)])
+        self.experts = nn.ModuleList([Expert(input_dim, hidden_dim, num_classes, activation) for _ in range(num_experts)])
 
         # Create gating module
         self.gating = GatingNetwork(input_dim, num_experts)
