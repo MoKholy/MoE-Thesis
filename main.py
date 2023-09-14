@@ -110,11 +110,15 @@ def evaluate(model, expert_loss_fn, gating_loss_fn, dataloader, device):
     return avg_loss, accuracy, f1, classification_report_str
 
 # Training loop function
-def train(args, model, expert_loss_fn, gating_loss_fn, optimizer, scheduler, dataloader, val_dataloader, device):
+def train(args, model, expert_loss_fn, gating_loss_fn, optimizer, scheduler, dataloader, val_dataloader, device, log_dir, save_dir):
     best_f1_score = 0.0
-    writer = SummaryWriter()
+    best_model = None
+    writer = SummaryWriter(log_dir=log_dir)
     model.to(device)
     for epoch in tqdm(range(args.num_epochs), desc="Epochs"):
+        
+        ########  training  ########
+        
         # set model to train
         model.train()
         # track losses, predictions and labels
@@ -165,12 +169,12 @@ def train(args, model, expert_loss_fn, gating_loss_fn, optimizer, scheduler, dat
         f1 = f1_score(all_labels, all_preds, average="macro")
 
         # write to tensorboard
-        writer.add_scalar("Train/Avg_Train_Expert_Loss", avg_expert_loss, epoch)
-        writer.add_scalar("Train/Avg_Train_Gating_Loss", avg_gating_loss, epoch)
-        writer.add_scalar("Train/Train_Accuracy", accuracy, epoch)
-        writer.add_scalar("Train/Train_F1_Score", f1, epoch)
+        writer.add_scalar("Avg_Train_Expert_Loss", avg_expert_loss, epoch)
+        writer.add_scalar("Avg_Train_Gating_Loss", avg_gating_loss, epoch)
+        writer.add_scalar("Train_Accuracy", accuracy, epoch)
+        writer.add_scalar("Train_F1_Score", f1, epoch)
 
-        # perform validation
+        ########  validation  ########
 
         # set model to eval
         model.eval()
@@ -211,21 +215,24 @@ def train(args, model, expert_loss_fn, gating_loss_fn, optimizer, scheduler, dat
         f1_val = f1_score(all_labels_val, all_preds_val, average="macro")
 
         # write to tensorboard
-        writer.add_scalar("Train/Avg_Val_Expert_Loss", avg_expert_loss_val, epoch)
-        writer.add_scalar("Train/Avg_Val_Gating_Loss", avg_gating_loss_val, epoch)
-        writer.add_scalar("Train/Val_Accuracy", accuracy_val, epoch)
-        writer.add_scalar("Train/Val_F1_Score", f1_val, epoch)
+        writer.add_scalar("Avg_Val_Expert_Loss", avg_expert_loss_val, epoch)
+        writer.add_scalar("Avg_Val_Gating_Loss", avg_gating_loss_val, epoch)
+        writer.add_scalar("Val_Accuracy", accuracy_val, epoch)
+        writer.add_scalar("Val_F1_Score", f1_val, epoch)
 
         # check if F1 score is best
         if f1_val > best_f1_score:
             # save model
-            torch.save(model.state_dict(), "best_model.pt")
+            # torch.save(model.state_dict(), "best_model.pt")
+            torch.save(model.state_dict(), os.path.join(save_dir, "best_model.pt"))
+            best_model = model
             # update best F1 score
             best_f1_score = f1
         
     writer.close()
-
-
+    
+    # return best model
+    return best_model
 
 # main function
 
@@ -331,7 +338,12 @@ if __name__ == "__main__":
             raise ValueError("Invalid scheduler")
         
         # train model
-    
+        best_model = train(args=args, model=model, expert_loss_fn=expert_loss_fn, gating_loss_fn=gating_loss_fn, optimizer=optimizer, scheduler=scheduler, dataloader=train_dataloader, val_dataloader=val_dataloader, device=device, log_dir=log_dir, save_dir=save_dir)
+        
+        # evaluate model
+        pass 
+        
+        
 
     
 
