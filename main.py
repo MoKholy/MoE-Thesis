@@ -3,7 +3,8 @@ import torch
 import torch.optim as optim
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from sklearn.metrics import accuracy_score, f1_score, confusion_matrix, classification_report
+from sklearn.metrics import accuracy_score, f1_score, classification_report
+from visualization import plot_confusion_matrix, plot_roc_curve, plot_precision_recall_curve
 from tensorboardX import SummaryWriter  
 from model import MixtureOfExperts
 from losses import WeightedCrossEntropyLoss, FocalLoss, MSEGatingLoss
@@ -66,27 +67,40 @@ def argparser():
     return parser.parse_args()
 
 # evaluate function #TODO update this function
-def evaluate(model, expert_loss_fn, gating_loss_fn, dataloader, device):
+def evaluate(model, expert_loss_fn, gating_loss_fn, dataloader, device, save_dir):
+    
+    
+    ### evaluate model  ###
     model.eval()
-    total_loss = 0.0
+    total_gating_loss = 0.0
+    total_expert_loss = 0.0
     all_preds = []
     all_labels = []
 
+    # move model to device
+    model.to(device)
+    
     with torch.no_grad():
-        for batch_data, batch_labels in tqdm(dataloader, desc="Validation", leave=False):
-            batch_data = batch_data.to(device)  # Move data to the specified device
-            batch_labels = batch_labels.to(device)
-
-            expert_outputs, _ = model(batch_data)  # We don't need gating weights for evaluation
-
-            # Calculate expert loss (optional)
-            expert_loss = expert_loss_fn(expert_outputs, batch_labels)
-            total_loss += expert_loss.item()
-
-            # Calculate predictions for accuracy and F1 score
-            _, preds = torch.max(expert_outputs, 1)
-            all_preds.extend(preds.cpu().tolist())  # Move predictions back to CPU
-            all_labels.extend(batch_labels.cpu().tolist())
+        for input, true_gating_labels, labels in tqdm(dataloader, desc="Test", leave=False):
+            
+            # move to device 
+            input, true_gating_labels, labels = input.to(device), true_gating_labels.to(device), labels.to(device)
+            
+            mixture_out, gating_out, expert_out = model(input)
+            
+            # get gating loss
+            gate_loss = gating_loss_fn(gating_out, true_gating_labels.float())
+            total_gating_loss += gate_loss.item()
+            # get expert loss
+            exprt_loss = expert_loss_fn(mixture_out, labels)
+            total_expert_loss += exprt_loss.item()
+            
+            # calculate predictions for accuracy and F1 score
+            _, preds = torch.max(mixture_out, dim=1)
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+            
+    # calculate a
 
     # Calculate average loss (optional)
     avg_loss = total_loss / len(dataloader)
