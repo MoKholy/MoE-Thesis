@@ -14,10 +14,10 @@ ACTIVATIONS = {
 class Expert(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim, activation, dout=0.2):
         super(Expert, self).__init__()
-        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.fc1 = nn.Linear(input_dim, hidden_dim, bias=False)
         self.bn1 = nn.BatchNorm1d(hidden_dim)
         self.dropout = nn.Dropout(dout)
-        self.fc2 = nn.Linear(hidden_dim, output_dim)
+        self.fc2 = nn.Linear(hidden_dim, output_dim, bias=False)
         self.bn2 = nn.BatchNorm1d(output_dim)
         self.act = ACTIVATIONS[activation]
     
@@ -37,12 +37,12 @@ class GatingNetwork(nn.Module):
         return self.softmax(self.fc(x))
 
 class MixtureOfExperts(nn.Module):
-    def __init__(self, input_dim, hidden_dim, num_experts, num_classes, activation):
+    def __init__(self, input_dim, hidden_dim, num_experts, num_classes, activation, dropout=0.2):
         super(MixtureOfExperts, self).__init__()
         self.num_experts = num_experts
 
         # Create expert modules
-        self.experts = nn.ModuleList([Expert(input_dim, hidden_dim, num_classes, activation) for _ in range(num_experts)])
+        self.experts = nn.ModuleList([Expert(input_dim=input_dim, hidden_dim=hidden_dim, output_dim = num_classes, activation=activation, dout=dropout) for _ in range(num_experts)])
 
         # Create gating module
         self.gating = GatingNetwork(input_dim, num_experts)

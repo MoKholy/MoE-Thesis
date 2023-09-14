@@ -1,6 +1,7 @@
 import argparse
 import torch
 import torch.optim as optim
+import torch.nn as nn
 from torch.utils.data import DataLoader
 from sklearn.metrics import accuracy_score, f1_score, confusion_matrix, classification_report
 from tensorboardX import SummaryWriter  
@@ -239,7 +240,7 @@ if __name__ == "__main__":
     set_seed(args.seed)
     
     # set log directory 
-    log_dir = os.path.join(args.log_dir, args.dataset_name, args.model_name)
+    log_dir = os.path.join(args.log_dir, args.dataset_name, args.model_name, "logs")
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
         
@@ -248,46 +249,90 @@ if __name__ == "__main__":
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
     
-    # load datasets
+    # load datasets and dataloaders
     dataset_path = f"../data/processed/"
     
-    train_dataset = GatingDataset(dataset_name=args.dataset_name, seed=args.seed, split="train", transform=args.standardize)
-    val_dataset = GatingDataset(dataset_name=args.dataset_name,seed=args.seed, split="val", transform=args.standardize)
+    if not args.eval_mode:
+        train_dataset = GatingDataset(dataset_name=args.dataset_name, seed=args.seed, split="train", transform=args.standardize)
+        val_dataset = GatingDataset(dataset_name=args.dataset_name,seed=args.seed, split="val", transform=args.standardize)
+        train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
+        val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
     test_dataset = GatingDataset(dataset_name=args.dataset_name,seed=args.seed, split="test", transform=args.standardize)
-    
-    # create dataloaders
-    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
     test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
     
-    # get arguments for model
+    # get some info from dataset
     
     if args.eval_mode:
         # get input dims from test dataset
         input_dim = test_dataset.get_input_dim()
+        num_classes = test_dataset.get_num_classes()
+        mapping = test_dataset.get_mapping()
+        inv_mapping = test_dataset.get_inv_mapping()
     else:
         # get input dims from train dataset
         input_dim = train_dataset.get_input_dim()
-    
-    
-    
-    model_args = {
-        "input_dim" : input_dim,
-        "hidden_dim" : args.hidden_dim,
-        "num_experts" : args.num_classes if not args.num_experts else args.num_experts,
-        "num_classes" : args.num_classes if args.num_classes else 15,
-        "dropout" : args.dropout,
-        "activation_fn" : args.activation_fn
-    }
-    
-    # create model
-    
-    
-    
-    
-
+        num_classes = train_dataset.get_num_classes()
+        mapping = train_dataset.get_mapping()
+        inv_mapping = train_dataset.get_inv_mapping()
+        
     # set device 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
+    
+    # set arguments for model
+    model_args = {
+        "input_dim" : input_dim,
+        "hidden_dim" : args.hidden_dim,
+        "num_experts" : num_classes if args.num_experts is None else args.num_experts,
+        "num_classes" : num_classes,
+        "activation" : args.activation_fn,
+        "dropout" : args.dropout
+    }
+    
+    model = MixtureOfExperts(**model_args)
+    
+    if args.eval_mode:
+        
+        # load state dictionary from model path
+        model.load_state_dict(torch.load(args.model_path))
+
+        # evaluate model
+        pass
+    
+    else: #TODO add weights for focal loss and weighted cross entropy loss
+        
+        # set loss functions
+        if args.expert_loss_fn == "ce":
+            expert_loss_fn = nn.CrossEntropyLoss()
+        elif args.expert_loss_fn == "focal_loss":
+            expert_loss_fn = FocalLoss()
+        elif args.expert_loss_fn == "wce":
+            expert_loss_fn = WeightedCrossEntropyLoss()
+        else:
+            raise ValueError("Invalid expert loss function")
+        
+        gating_loss_fn = MSEGatingLoss()
+        
+        # set optimizer
+        if args.optimizer == "adam":
+            optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay, betas=args.betas)
+        elif args.optimizer == "sgd":
+            optimizer = optim.SGD(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay, momentum=args.momentum, nesterov=args.nesterov)
+        else:
+            raise ValueError("Invalid optimizer")
+        
+        # set scheduler
+        # if args.scheduler == "plateau":
+        #     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=args.patience, min_lr=args.min_lr)
+        
+        if args.scheduler == "step":
+            scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=args.gamma)
+        else:
+            raise ValueError("Invalid scheduler")
+        
+        # train model
+    
+
+    
 
 
