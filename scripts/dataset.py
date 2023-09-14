@@ -4,6 +4,9 @@ import numpy as np
 import os 
 import pandas as pd
 import torch.nn.functional as F
+import gc
+
+
 
 LABEL2INT = {'Benign': 0,
  'Bot': 1,
@@ -38,9 +41,6 @@ INT2LABEL = {0: 'Benign',
  13: 'SQL Injection',
  14: 'SSH-Bruteforce'
 }
-
-
-
 
 
 COLS_TO_DROP = ["DNS_QUERY_ID", "FTP_COMMAND_RET_CODE","IPV4_SRC_ADDR", "IPV4_DST_ADDR", "L4_SRC_PORT", "Label"]
@@ -119,9 +119,10 @@ class GatingDataset(Dataset):
 
         self.file_path = os.path.join("../data/", dataset_name)
         self.transform = transform
-        self.data = reduce_mem_usage(self.file_path, map_labels=True)
+        self.data = reduce_mem_usage(self.file_path, drop_cols=False, map_labels=False)
         self.mapping = INT2LABEL
         self.inv_mapping = LABEL2INT
+        
     def __len__(self):
         return len(self.data)
     
@@ -130,11 +131,21 @@ class GatingDataset(Dataset):
         if torch.is_tensor(idx):
             idx = idx.tolist()
             
-        sample = self.data.iloc[idx, :]
-        label = sample["Attack"]
-        sample = sample.drop(columns=["Attack"])
-        gate_label = F.one_hot(torch.tensor(label), num_classes=15).float()
+        sample = self.data.iloc[idx, :-1]
+        
+        if type(idx) is int:
+            label = torch.tensor([self.data.iloc[idx, -1]], dtype=torch.int64)
+        else:
+            label = torch.tensor(self.data.iloc[idx, -1].to_list(), dtype=torch.int64)
+        
+        
+        gate_label = F.one_hot(label, num_classes=15).float()
+        
         sample = torch.tensor(sample.values).float()
+        # debugging
+        # print(f"sample shape: {sample.shape}")
+        # print(f"label shape: {label.shape}")
+        # print(f"gate label shape: {gate_label.shape}")
         if self.transform:
             sample = self.transform(sample)
         return sample, gate_label, label
