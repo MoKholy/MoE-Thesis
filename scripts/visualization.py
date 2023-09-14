@@ -1,7 +1,8 @@
-# copied from https://github.com/othmbela/dbn-based-nids
+# edited from https://github.com/othmbela/dbn-based-nids
 
-from sklearn.metrics import precision_recall_curve, confusion_matrix, roc_curve, auc
+from sklearn.metrics import classification_report, precision_recall_curve, confusion_matrix, roc_curve, auc
 import matplotlib.pyplot as plt
+import pandas as pd
 import seaborn as sns
 import os
 
@@ -39,7 +40,7 @@ def plot_confusion_matrix(y_true, y_pred, labels, save=False, save_dir=None, fil
         fig.savefig(os.path.join(save_dir, filename))
 
 
-def plot_roc_curve(y_test, y_score, labels, save=False, save_dir=None, filename=None):
+def plot_roc_curve(y_test, y_score, labels, save=False, avg_mode = "macro", save_dir=None, filename=None):
 
     n_classes = y_score.shape[1]
 
@@ -51,12 +52,12 @@ def plot_roc_curve(y_test, y_score, labels, save=False, save_dir=None, filename=
         roc_auc[i] = auc(fpr[i], tpr[i])
 
     # Compute micro-average ROC curve and ROC area
-    fpr["micro"], tpr["micro"], _ = roc_curve(y_test.ravel(), y_score.ravel())
-    roc_auc["micro"] = auc(fpr["micro"], tpr["micro"])
+    fpr[avg_mode], tpr[avg_mode], _ = roc_curve(y_test.ravel(), y_score.ravel())
+    roc_auc[avg_mode] = auc(fpr[avg_mode], tpr[avg_mode])
 
     # Plot ROC curve
     fig = plt.figure(figsize=(14, 10))
-    plt.plot(fpr["micro"], tpr["micro"], label='micro-average ROC curve (area = {0:0.4f})'.format(roc_auc["micro"]))
+    plt.plot(fpr[avg_mode], tpr[avg_mode], label='micro-average ROC curve (area = {0:0.4f})'.format(roc_auc[avg_mode]))
     for i in range(n_classes):
         plt.plot(fpr[i], tpr[i], label='ROC curve of class {0} (area = {1:0.4f})'.format(labels[i], roc_auc[i]))
 
@@ -96,6 +97,23 @@ def plot_precision_recall_curve(y_test, y_score, labels, save=False, save_dir=No
     plt.legend(loc="best")
     plt.grid()
     
+    fig.tight_layout()
+    
+    if save:
+        fig.savefig(os.path.join(save_dir, filename))
+        
+        
+def plot_classification_report(y_test, y_pred, labels, save=False, save_dir=None, filename=None):
+    """Plot classification report for each class"""
+
+    report = classification_report(y_test, y_pred, target_names=labels, output_dict=True)
+
+    fig = plt.figure(figsize=(14, 10))
+    _ = sns.heatmap(pd.DataFrame(report).iloc[:-1, :].T, annot=True, cmap="Blues", fmt='.3f')
+    plt.xlabel("Metrics")
+    plt.ylabel("Class")
+    plt.title("Classification Report")
+
     fig.tight_layout()
     
     if save:

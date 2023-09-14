@@ -4,7 +4,7 @@ import torch.optim as optim
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from sklearn.metrics import accuracy_score, f1_score, classification_report
-from visualization import plot_confusion_matrix, plot_roc_curve, plot_precision_recall_curve
+from visualization import plot_classification_report, plot_confusion_matrix, plot_roc_curve, plot_precision_recall_curve
 from tensorboardX import SummaryWriter  
 from model import MixtureOfExperts
 from losses import WeightedCrossEntropyLoss, FocalLoss, MSEGatingLoss
@@ -67,7 +67,7 @@ def argparser():
     return parser.parse_args()
 
 # evaluate function #TODO update this function
-def evaluate(model, expert_loss_fn, gating_loss_fn, dataloader, device, save_dir):
+def evaluate(model, expert_loss_fn, gating_loss_fn, dataloader, device, labels_list, model_name, save_dir):
     
     
     ### evaluate model  ###
@@ -76,7 +76,7 @@ def evaluate(model, expert_loss_fn, gating_loss_fn, dataloader, device, save_dir
     total_expert_loss = 0.0
     all_preds = []
     all_labels = []
-
+    all_pred_probs = []
     # move model to device
     model.to(device)
     
@@ -99,29 +99,53 @@ def evaluate(model, expert_loss_fn, gating_loss_fn, dataloader, device, save_dir
             _, preds = torch.max(mixture_out, dim=1)
             all_preds.extend(preds.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
-            
+            all_pred_probs.extend(nn.functional.softmax(mixture_out, dim=0).cpu().tolist())
     # calculate a
 
     # Calculate average loss (optional)
-    avg_loss = total_loss / len(dataloader)
+    avg_expert_loss = total_expert_loss / len(dataloader)
+    avg_gating_loss = total_gating_loss / len(dataloader)
 
-    # Calculate accuracy and F1 score
-    accuracy = accuracy_score(all_labels, all_preds)
-    f1 = f1_score(all_labels, all_preds, average='weighted')
+    # get y_score for roc curve and precision recall curve
+    y_score = np.array(all_pred_probs)
+    
+    avg_modes = ["micro", "macro", "weighted"]
+    # Generate confusion matrix
+    plot_confusion_matrix(y_true = all_preds, 
+                          y_pred = all_labels, 
+                          labels=labels_list, 
+                          save=True, 
+                          save_dir = save_dir,
+                          filename=f"{model_name}_confusion_matrix.png")
+    
+    # Generate ROC curve
+    for avg_mode in avg_modes:
+        plot_roc_curve(y_test = all_labels,
+                    y_score = y_score,
+                    labels=labels_list,
+                    save=True,
+                    avg_mode = avg_mode,
+                    save_dir = save_dir,
+                    filename=f"{model_name}_{avg_mode}_roc_curve.png")
 
-    # Generate classification report
-    classification_report_str = classification_report(all_labels, all_preds)
-
-    # Create a confusion matrix heatmap
-    cm = confusion_matrix(all_labels, all_preds)
-    plt.figure(figsize=(8, 6))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', cbar=False)
-    plt.xlabel('Predicted')
-    plt.ylabel('True')
-    plt.title('Confusion Matrix')
-    plt.savefig('confusion_matrix.png')  # Save the heatmap as an image
-
-    return avg_loss, accuracy, f1, classification_report_str
+    # Generate precision recall curve
+    plot_precision_recall_curve(y_test = all_labels,
+                                y_score = y_score,
+                                labels=labels_list,
+                                save=True,
+                                save_dir = save_dir,
+                                filename=f"{model_name}_precision_recall_curve.png")
+    
+    # get classification report
+    plot_classification_report(y_test = all_labels,
+                               y_pred = all_preds,
+                               labels = labels_list,
+                               save=True, 
+                               save_dir = save_dir,
+                               filename=f"{model_name}_classification_report.png")
+                               
+    
+    # return avg_loss, accuracy, f1, classification_report_str
 
 # Training loop function
 def train(args, model, expert_loss_fn, gating_loss_fn, optimizer, scheduler, dataloader, val_dataloader, device, log_dir, save_dir):
