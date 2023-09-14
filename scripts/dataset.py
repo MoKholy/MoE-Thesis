@@ -150,3 +150,9 @@ class GatingDataset(Dataset):
             sample = self.transform(sample)
         return sample, gate_label, label
     
+    def get_mapping(self):
+        return self.mapping
+    
+    def get_inv_mapping(self):
+        return self.inv_mapping
+    
