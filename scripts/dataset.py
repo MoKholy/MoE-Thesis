@@ -149,14 +149,12 @@ class GatingDataset(Dataset):
         else:
             label = torch.tensor(self.data.iloc[idx, -1].to_list(), dtype=torch.int64)
         
+        gate_label = F.one_hot(label, num_classes=self.num_classes).float()
         
-        gate_label = F.one_hot(label, num_classes=15).float()
+        # squeeze gate label
+        gate_label = torch.squeeze(gate_label)
         
         sample = torch.tensor(sample.values).float()
-        # debugging
-        # print(f"sample shape: {sample.shape}")
-        # print(f"label shape: {label.shape}")
-        # print(f"gate label shape: {gate_label.shape}")
         
         return sample, gate_label, label
     

@@ -75,8 +75,7 @@ def argparser():
 
 # evaluate function #TODO update this function
 def evaluate(model, expert_loss_fn, gating_loss_fn, dataloader, device, labels_list, model_name, save_dir):
-    
-    ### evaluate model  ###
+    # set model to eval
     model.eval()
     total_gating_loss = 0.0
     total_expert_loss = 0.0
@@ -94,6 +93,9 @@ def evaluate(model, expert_loss_fn, gating_loss_fn, dataloader, device, labels_l
             
             mixture_out, gating_out, expert_out = model(input)
             
+            if labels.dim() == 2:
+                labels = torch.squeeze(labels, dim=1)
+        
             # get gating loss
             gate_loss = gating_loss_fn(gating_out, true_gating_labels.float())
             total_gating_loss += gate_loss.item()
@@ -106,10 +108,7 @@ def evaluate(model, expert_loss_fn, gating_loss_fn, dataloader, device, labels_l
             all_preds.extend(preds.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
             all_pred_probs.extend(nn.functional.softmax(mixture_out, dim=0).cpu().tolist())
-    # # Calculate average loss (optional)
-    # avg_expert_loss = total_expert_loss / len(dataloader)
-    # avg_gating_loss = total_gating_loss / len(dataloader)
-
+            
     # set plot save dir
     plot_save_dir = os.path.join(save_dir, "plots", "test")
     if not os.path.exists(plot_save_dir):
@@ -152,11 +151,10 @@ def evaluate(model, expert_loss_fn, gating_loss_fn, dataloader, device, labels_l
                                save_dir = plot_save_dir,
                                filename=f"{model_name}_classification_report.png")
                                
-    
-    # return avg_loss, accuracy, f1, classification_report_str
 
 # Training loop function
 def train(args, model, expert_loss_fn, gating_loss_fn, optimizer, scheduler, dataloader, val_dataloader, device, log_dir, save_dir):
+    
     best_f1_score = 0.0
     best_model = None
     writer = SummaryWriter(log_dir=log_dir)
@@ -187,18 +185,18 @@ def train(args, model, expert_loss_fn, gating_loss_fn, optimizer, scheduler, dat
             true_gating_labels = true_gating_labels.to(device)
             labels = labels.to(device)
 
+            # check if labels are 2D
+            if labels.dim() == 2:
+                labels = torch.squeeze(labels, dim=1)
+            
             # get output from model
             mixture_out, gating_out, expert_out = model(input)
-            
-            # expert out for debugging
 
-            # get gating loss
+            # get losses
             gate_loss = gating_loss_fn(gating_out, true_gating_labels.float())
             total_gating_loss += gate_loss.item()
-            # get expert loss
             exprt_loss = expert_loss_fn(mixture_out, labels)
             total_expert_loss += exprt_loss.item()
-            # get total loss
             total_loss = gate_loss + exprt_loss
             # zero gradients
             optimizer.zero_grad()
@@ -251,6 +249,8 @@ def train(args, model, expert_loss_fn, gating_loss_fn, optimizer, scheduler, dat
             true_gating_labels = true_gating_labels.to(device)
             labels = labels.to(device)
 
+            if labels.dim() == 2:
+                labels = torch.squeeze(labels, dim=1)
             # get output from model
             mixture_out, gating_out, expert_out = model(input)
             # get gating loss
