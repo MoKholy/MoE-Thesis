@@ -114,9 +114,9 @@ def reduce_mem_usage(file_name, drop_cols = True, map_labels=True):
 
 
 class GatingDataset(Dataset):
-    def __init__(self, dataset_name, mapping = INT2LABEL, inv_mapping = LABEL2INT, split = "train", seed=10, transform=True):
+    def __init__(self, dataset_name, dataset_path = "data/processed/", mapping = INT2LABEL, inv_mapping = LABEL2INT, split = "train", seed=10, transform=True):
         
-        self.file_path = os.path.join("../data/processed/", f"{seed}" ,f"{split}_" + dataset_name)
+        self.file_path = os.path.join(dataset_path, f"{seed}" ,f"{split}_" + dataset_name)
         self.transform = transform
         self.data = reduce_mem_usage(self.file_path, drop_cols=False, map_labels=False)
         
@@ -130,7 +130,7 @@ class GatingDataset(Dataset):
             scaler = StandardScaler()
             cols = self.data.columns[:-1]
             self.data[cols] = scaler.fit_transform(self.data[cols])
-        self.num_features = None
+        self.num_features = len(self.data.columns[:-1])
         # get number of unique values in attack column
         self.num_classes = np.unique(self.data["Attack"]).shape[0]
         
@@ -143,9 +143,6 @@ class GatingDataset(Dataset):
             idx = idx.tolist()
             
         sample = self.data.iloc[idx, :-1]
-
-        # num_features is used to initialize the model, they are len of sample cols
-        self.num_features = len(sample.columns)
         
         if type(idx) is int:
             label = torch.tensor([self.data.iloc[idx, -1]], dtype=torch.int64)
@@ -160,8 +157,7 @@ class GatingDataset(Dataset):
         # print(f"sample shape: {sample.shape}")
         # print(f"label shape: {label.shape}")
         # print(f"gate label shape: {gate_label.shape}")
-        if self.transform:
-            sample = self.transform(sample)
+        
         return sample, gate_label, label
     
     def get_mapping(self):

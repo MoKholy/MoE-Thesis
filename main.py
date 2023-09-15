@@ -4,16 +4,15 @@ import torch.optim as optim
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from sklearn.metrics import accuracy_score, f1_score, classification_report
-from visualization import plot_all_losses, plot_train_validation_loss, plot_classification_report, plot_confusion_matrix, plot_roc_curve, plot_precision_recall_curve
+from scripts.visualization import plot_all_losses, plot_train_validation_loss, plot_classification_report, plot_confusion_matrix, plot_roc_curve, plot_precision_recall_curve
 from tensorboardX import SummaryWriter  
-from model import MixtureOfExperts
-from losses import WeightedCrossEntropyLoss, FocalLoss, MSEGatingLoss
-from dataset import GatingDataset
-import matplitlib.pyplot as plt
+from scripts.models import MixtureOfExperts
+from scripts.losses import WeightedCrossEntropyLoss, FocalLoss, MSEGatingLoss
+from scripts.dataset import GatingDataset
+import matplotlib.pyplot as plt
 import seaborn as sns
 from tqdm import tqdm
-from random import random
-from torch.utils.data import random_split
+import random
 import numpy as np
 import os 
 
@@ -30,9 +29,10 @@ def argparser():
     parser = argparse.ArgumentParser(description='Mixture of Experts Training')
     # add general arguments
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
-    parser.add_argument('--log_dir', type=str, default='logs', help='Directory to save logs')
+    # parser.add_argument('--log_dir', type=str, default='logs', help='Directory to save logs')
     # add dataset arguments
     parser.add_argument('--dataset_name', type=str, default=None, help='Name of dataset to use')
+    parser.add_argument('--dataset_path', type=str, default='data/processed/', help='Path to dataset')
     parser.add_argument('--standardize', type=bool, default=True, help='Standardize dataset')
     parser.add_argument('--train_size', type=float, default=0.8, help='Train size')
     parser.add_argument('--val_size', type=float, default=0.1, help='Validation size')
@@ -41,7 +41,7 @@ def argparser():
     parser.add_argument('--batch_size', type=int, default=64, help='Batch size')
     # add model arguments
     parser.add_argument('--hidden_dim', type=int, help='Hidden dimension for experts')
-    parser.add_argument('--num_experts', type=int, help='Number of experts')
+    parser.add_argument('--num_experts', type=int, default=-1, help='Number of experts')
     parser.add_argument('--num_classes', type=int, help='Number of classes')
     parser.add_argument('--dropout', type=float, default=0.0, help='Dropout probability')
     parser.add_argument('--activation_fn', type=str, default='relu', help='Activation function for experts')
@@ -57,7 +57,14 @@ def argparser():
     parser.add_argument('--momentum', type=float, default=0.9, help='Momentum for SGD optimizer')
     parser.add_argument('--nesterov', type=bool, default=True, help='Nesterov for SGD optimizer')
     parser.add_argument('--betas', nargs='+', type=float, default=[0.9, 0.999], help='Betas for Adam optimizer')
-    # add save arguments # create dataloaderr lr_step scheduler')
+    # add save arguments 
+    parser.add_argument('--save_dir', type=str, default='', help='Directory to save everything')
+    parser.add_argument('--model_name', type=str, default='', help='Name of model')
+    
+    # add scheduler arguments
+    parser.add_argument('--scheduler', choices=["none", 'lr_step', 'plateau'], default="none", help='Learning rate scheduler')
+    parser.add_argument('--scheduler_step_size', type=int, default=20, help='Step size for lr_step scheduler')
+    parser.add_argument('--gamma', type=float, default=0.1, help='Gamma for lr_step scheduler')
     # parser.add_argument('--patience', type=int, default=5, help='Patience for plateau scheduler')
     # parser.add_argument('--min_lr', type=float, default=1e-6, help='Minimum learning rate for plateau scheduler')
     
@@ -68,7 +75,6 @@ def argparser():
 
 # evaluate function #TODO update this function
 def evaluate(model, expert_loss_fn, gating_loss_fn, dataloader, device, labels_list, model_name, save_dir):
-    
     
     ### evaluate model  ###
     model.eval()
@@ -201,7 +207,8 @@ def train(args, model, expert_loss_fn, gating_loss_fn, optimizer, scheduler, dat
             # update weights
             optimizer.step()
             # update scheduler
-            scheduler.step()
+            if scheduler is not None:
+                scheduler.step()
 
             # calculate predictions for accuracy and F1 score
             _, preds = torch.max(mixture_out, dim=1)
@@ -335,30 +342,43 @@ if __name__ == "__main__":
     #parse arguments from command line
     args = argparser()
     
+    # print arguments
+    print(f"args : {args}")
+     
     # set seed for reproducibility
     set_seed(args.seed)
     
+    print(f"set seed successfully to {args.seed}")
     # set log directory 
-    log_dir = os.path.join(args.log_dir, args.dataset_name, args.model_name, "logs")
+    log_dir = os.path.join(args.save_dir, args.dataset_name, args.model_name, "logs")
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
-        
+    
+    # print log directory
+    print(f"log_dir : {log_dir}")
+    
     # set save directory
     save_dir = os.path.join(args.save_dir, args.dataset_name, args.model_name)
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
     
+    print(f"save_dir : {save_dir}")
+    
     # load datasets and dataloaders
-    dataset_path = f"../data/processed/"
+    dataset_path = args.dataset_path
     
     if not args.eval_mode:
-        train_dataset = GatingDataset(dataset_name=args.dataset_name, seed=args.seed, split="train", transform=args.standardize)
-        val_dataset = GatingDataset(dataset_name=args.dataset_name,seed=args.seed, split="val", transform=args.standardize)
+        train_dataset = GatingDataset(dataset_name=args.dataset_name, dataset_path=dataset_path, seed=args.seed, split="train", transform=args.standardize)
+        val_dataset = GatingDataset(dataset_name=args.dataset_name, dataset_path=dataset_path, seed=args.seed, split="val", transform=args.standardize)
         train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
         val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
-    test_dataset = GatingDataset(dataset_name=args.dataset_name,seed=args.seed, split="test", transform=args.standardize)
+        
+        print(f"train dataset size : {len(train_dataset)}")
+        print(f"val dataset size : {len(val_dataset)}")
+        
+    test_dataset = GatingDataset(dataset_name=args.dataset_name, dataset_path=dataset_path, seed=args.seed, split="test", transform=args.standardize)
     test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
-    
+    print(f"test dataset size : {len(test_dataset)}")
     # get some info from dataset
     
     if args.eval_mode:
@@ -402,11 +422,14 @@ if __name__ == "__main__":
         model_args = {
             "input_dim" : input_dim,
             "hidden_dim" : args.hidden_dim,
-            "num_experts" : num_classes if args.num_experts is None else args.num_experts,
+            "num_experts" : num_classes if args.num_experts == -1 else args.num_experts,
             "num_classes" : num_classes,
             "activation" : args.activation_fn,
             "dropout" : args.dropout
         }
+        
+        # print model args
+        print(f"model_args : {model_args}")
         
         model = MixtureOfExperts(**model_args)
         
@@ -438,8 +461,10 @@ if __name__ == "__main__":
         # if args.scheduler == "plateau":
         #     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=args.patience, min_lr=args.min_lr)
         
-        if args.scheduler == "step":
-            scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=args.gamma)
+        if args.scheduler == "lr_step":
+            scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=args.scheduler_step_size, gamma=args.gamma)
+        elif args.scheduler == "none":
+            scheduler = None
         else:
             raise ValueError("Invalid scheduler")
         
