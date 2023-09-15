@@ -118,3 +118,41 @@ def plot_classification_report(y_test, y_pred, labels, save=False, save_dir=None
     
     if save:
         fig.savefig(os.path.join(save_dir, filename))
+        
+def plot_train_validation_loss(train_loss, validation_loss, save=False, save_dir=None, filename=None):
+    """Plot train and validation loss"""
+
+    fig = plt.figure(figsize=(14, 10))
+    plt.plot(train_loss, label='Train loss')
+    plt.plot(validation_loss, label='Validation loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Train and validation loss')
+    plt.legend(loc="best")
+    plt.grid()
+
+    fig.tight_layout()
+    
+    if save:
+        fig.savefig(os.path.join(save_dir, filename))
+        
+def plot_all_losses(train_total_loss, val_total_loss, train_gating_loss, val_gating_loss, train_expert_loss, val_expert_loss, save=False, save_dir=None, filename=None):
+    """Plot train and validation loss"""
+
+    fig = plt.figure(figsize=(14, 10))
+    plt.plot(train_total_loss, label='Train total loss')
+    plt.plot(val_total_loss, label='Validation total loss')
+    plt.plot(train_gating_loss, label='Train gating loss')
+    plt.plot(val_gating_loss, label='Validation gating loss')
+    plt.plot(train_expert_loss, label='Train expert loss')
+    plt.plot(val_expert_loss, label='Validation expert loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Train and validation loss')
+    plt.legend(loc="best")
+    plt.grid()
+
+    fig.tight_layout()
+    
+    if save:
+        fig.savefig(os.path.join(save_dir, filename))

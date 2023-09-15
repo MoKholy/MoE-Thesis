@@ -4,7 +4,7 @@ import torch.optim as optim
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from sklearn.metrics import accuracy_score, f1_score, classification_report
-from visualization import plot_classification_report, plot_confusion_matrix, plot_roc_curve, plot_precision_recall_curve
+from visualization import plot_all_losses, plot_train_validation_loss, plot_classification_report, plot_confusion_matrix, plot_roc_curve, plot_precision_recall_curve
 from tensorboardX import SummaryWriter  
 from model import MixtureOfExperts
 from losses import WeightedCrossEntropyLoss, FocalLoss, MSEGatingLoss
@@ -100,12 +100,14 @@ def evaluate(model, expert_loss_fn, gating_loss_fn, dataloader, device, labels_l
             all_preds.extend(preds.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
             all_pred_probs.extend(nn.functional.softmax(mixture_out, dim=0).cpu().tolist())
-    # calculate a
+    # # Calculate average loss (optional)
+    # avg_expert_loss = total_expert_loss / len(dataloader)
+    # avg_gating_loss = total_gating_loss / len(dataloader)
 
-    # Calculate average loss (optional)
-    avg_expert_loss = total_expert_loss / len(dataloader)
-    avg_gating_loss = total_gating_loss / len(dataloader)
-
+    # set plot save dir
+    plot_save_dir = os.path.join(save_dir, "plots", "test")
+    if not os.path.exists(plot_save_dir):
+        os.makedirs(plot_save_dir)
     # get y_score for roc curve and precision recall curve
     y_score = np.array(all_pred_probs)
     
@@ -115,7 +117,7 @@ def evaluate(model, expert_loss_fn, gating_loss_fn, dataloader, device, labels_l
                           y_pred = all_labels, 
                           labels=labels_list, 
                           save=True, 
-                          save_dir = save_dir,
+                          save_dir = plot_save_dir,
                           filename=f"{model_name}_confusion_matrix.png")
     
     # Generate ROC curve
@@ -125,7 +127,7 @@ def evaluate(model, expert_loss_fn, gating_loss_fn, dataloader, device, labels_l
                     labels=labels_list,
                     save=True,
                     avg_mode = avg_mode,
-                    save_dir = save_dir,
+                    save_dir = plot_save_dir,
                     filename=f"{model_name}_{avg_mode}_roc_curve.png")
 
     # Generate precision recall curve
@@ -133,7 +135,7 @@ def evaluate(model, expert_loss_fn, gating_loss_fn, dataloader, device, labels_l
                                 y_score = y_score,
                                 labels=labels_list,
                                 save=True,
-                                save_dir = save_dir,
+                                save_dir = plot_save_dir,
                                 filename=f"{model_name}_precision_recall_curve.png")
     
     # get classification report
@@ -141,7 +143,7 @@ def evaluate(model, expert_loss_fn, gating_loss_fn, dataloader, device, labels_l
                                y_pred = all_preds,
                                labels = labels_list,
                                save=True, 
-                               save_dir = save_dir,
+                               save_dir = plot_save_dir,
                                filename=f"{model_name}_classification_report.png")
                                
     
@@ -153,6 +155,14 @@ def train(args, model, expert_loss_fn, gating_loss_fn, optimizer, scheduler, dat
     best_model = None
     writer = SummaryWriter(log_dir=log_dir)
     model.to(device)
+    
+    # collect gating, expert and total loss for each epoch for train and validation
+    train_gating_loss = []
+    train_expert_loss = []
+    train_total_loss = []
+    val_gating_loss = []
+    val_expert_loss = []
+    val_total_loss = []
     for epoch in tqdm(range(args.num_epochs), desc="Epochs"):
         
         ########  training  ########
@@ -202,6 +212,10 @@ def train(args, model, expert_loss_fn, gating_loss_fn, optimizer, scheduler, dat
         avg_expert_loss = total_expert_loss / len(dataloader)
         avg_gating_loss = total_gating_loss / len(dataloader)
 
+        # append losses to list
+        train_gating_loss.append(avg_gating_loss)
+        train_expert_loss.append(avg_expert_loss)
+        train_total_loss.append(avg_gating_loss + avg_expert_loss)
         # calculate accuracy and F1 score
         accuracy = accuracy_score(all_labels, all_preds)
         f1 = f1_score(all_labels, all_preds, average="macro")
@@ -248,6 +262,11 @@ def train(args, model, expert_loss_fn, gating_loss_fn, optimizer, scheduler, dat
         avg_expert_loss_val = total_expert_loss_val / len(val_dataloader)
         avg_gating_loss_val = total_gating_loss_val / len(val_dataloader)
 
+        # append losses to list
+        val_gating_loss.append(avg_gating_loss_val)
+        val_expert_loss.append(avg_expert_loss_val)
+        val_total_loss.append(avg_gating_loss_val + avg_expert_loss_val)
+        
         # calculate accuracy and F1 score
         accuracy_val = accuracy_score(all_labels_val, all_preds_val)
         f1_val = f1_score(all_labels_val, all_preds_val, average="macro")
@@ -269,12 +288,47 @@ def train(args, model, expert_loss_fn, gating_loss_fn, optimizer, scheduler, dat
         
     writer.close()
     
+    # train plots save loc
+    plot_save_dir = os.path.join(save_dir, "plots", "train")
+    if not os.path.exists(plot_save_dir):
+        os.makedirs(plot_save_dir)
+    
+    
+    # plot train and validation losses
+    plot_train_validation_loss(train_loss=train_total_loss,
+                               validation_loss=val_total_loss,
+                               save=True,
+                               save_dir=plot_save_dir,
+                               filename="train_validation_total_loss.png"
+                               )
+    plot_train_validation_loss(train_loss=train_expert_loss,
+                               validation_loss=val_expert_loss,
+                               save=True,
+                               save_dir=plot_save_dir,
+                               filename="train_validation_expert_loss.png"
+                                 )
+    plot_train_validation_loss(train_loss=train_gating_loss,
+                               validation_loss=val_gating_loss,
+                               save=True,
+                               save_dir=plot_save_dir,
+                               filename="train_validation_gating_loss.png"
+                               )
+    
+    plot_all_losses(train_total_loss=train_total_loss,
+                    val_total_loss=val_total_loss,
+                    train_gating_loss=train_gating_loss,
+                    val_gating_loss=val_gating_loss,
+                    train_expert_loss=train_expert_loss,
+                    val_expert_loss=val_expert_loss,
+                    save=True,
+                    save_dir=plot_save_dir,
+                    filename="all_losses.png"
+                    )
+                    
     # return best model
     return best_model
 
 # main function
-
-
 
 if __name__ == "__main__":
 
@@ -324,27 +378,41 @@ if __name__ == "__main__":
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
     
-    # set arguments for model
-    model_args = {
-        "input_dim" : input_dim,
-        "hidden_dim" : args.hidden_dim,
-        "num_experts" : num_classes if args.num_experts is None else args.num_experts,
-        "num_classes" : num_classes,
-        "activation" : args.activation_fn,
-        "dropout" : args.dropout
-    }
     
-    model = MixtureOfExperts(**model_args)
     
-    if args.eval_mode:
+    if args.eval_mode: #TODO add evaluation part for model
         
-        # load state dictionary from model path
-        model.load_state_dict(torch.load(args.model_path))
-
-        # evaluate model
+        # # load args from save_dir
+        # with open(os.path.join(save_dir, "train_args.txt"), "r") as f:
+        #     train_args = f.read()
+            
+        # # set arguments for model from train_args loaded from file
+        # model_args = {
+        #     "input_dim" : input_dim,
+            
+        # }
+        # # load state dictionary from model path
+        # model.load_state_dict(torch.load(args.model_path))
+        # # evaluate model
         pass
     
     else: #TODO add weights for focal loss and weighted cross entropy loss
+        
+        # set arguments for model
+        model_args = {
+            "input_dim" : input_dim,
+            "hidden_dim" : args.hidden_dim,
+            "num_experts" : num_classes if args.num_experts is None else args.num_experts,
+            "num_classes" : num_classes,
+            "activation" : args.activation_fn,
+            "dropout" : args.dropout
+        }
+        
+        model = MixtureOfExperts(**model_args)
+        
+        # save args in save_dir
+        with open(os.path.join(save_dir, "train_args.txt"), "w") as f:
+            f.write(str(args))
         
         # set loss functions
         if args.expert_loss_fn == "ce":
@@ -379,7 +447,7 @@ if __name__ == "__main__":
         best_model = train(args=args, model=model, expert_loss_fn=expert_loss_fn, gating_loss_fn=gating_loss_fn, optimizer=optimizer, scheduler=scheduler, dataloader=train_dataloader, val_dataloader=val_dataloader, device=device, log_dir=log_dir, save_dir=save_dir)
         
         # evaluate model
-        pass 
+        evaluate(model=best_model, expert_loss_fn=expert_loss_fn, gating_loss_fn=gating_loss_fn, dataloader=test_dataloader, device=device, labels_list=inv_mapping, model_name=args.model_name, save_dir=save_dir)
         
         
 
